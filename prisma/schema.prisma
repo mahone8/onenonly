@@ -1,0 +1,133 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL")
+}
+
+model User {
+  id               String    @id @default(cuid())
+  name             String
+  phone            String    @unique
+  email            String?   @unique
+  passwordHash     String
+  role             String    @default("customer") // "customer" | "admin"
+  addressLine      String?
+  city             String?
+  emailVerifiedAt  DateTime?
+  emailVerifyToken String?   @unique // short-lived email verification token
+  emailVerifyExp   DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  orders           Order[]
+  reviews          Review[]
+}
+
+model Category {
+  id        String    @id @default(cuid())
+  slug      String    @unique
+  name      String
+  sortOrder Int       @default(0)
+  createdAt DateTime  @default(now())
+  products  Product[]
+}
+
+model Product {
+  id           String         @id @default(cuid())
+  slug         String         @unique
+  name         String
+  categorySlug String
+  category     Category       @relation(fields: [categorySlug], references: [slug])
+  brand        String?
+  strap        String? // strap type — mainly watches (Leather, Steel, Fabric…)
+  caseSize     String? // case size — mainly watches (e.g. "40mm")
+  price        Float
+  comparePrice Float?
+  description  String
+  image        String // main image (denormalised for fast listings)
+  badge        String?
+  rating       Float          @default(0) // aggregate, maintained by reviews
+  reviews      Int            @default(0) // approved review count
+  stock        Int            @default(0)
+  featured     Boolean        @default(false)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  images       ProductImage[]
+  orderItems   OrderItem[]
+  reviewsList  Review[]
+}
+
+model ProductImage {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url       String
+  sortOrder Int     @default(0)
+
+  @@index([productId])
+}
+
+model Order {
+  id            String      @id @default(cuid())
+  orderNo       String      @unique
+  userId        String?
+  user          User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  name          String
+  phone         String
+  email         String?
+  address       String
+  city          String
+  notes         String?
+  items         OrderItem[]
+  subtotal      Float
+  discount      Float       @default(0)
+  promoCode     String?
+  shipping      Float
+  total         Float
+  paymentMethod String      @default("COD")
+  status        String      @default("pending")
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id        String   @id @default(cuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  name      String
+  price     Float
+  qty       Int
+  image     String?
+}
+
+model PromoCode {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  type      String // "percent" | "fixed"
+  value     Float
+  minOrder  Float    @default(0)
+  active    Boolean  @default(true)
+  usedCount Int      @default(0)
+  createdAt DateTime @default(now())
+}
+
+model Review {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  name      String
+  rating    Int
+  comment   String
+  createdAt DateTime @default(now())
+
+  @@index([productId])
+}
