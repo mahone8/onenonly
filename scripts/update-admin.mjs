@@ -1,6 +1,7 @@
-/** Update admin credentials: bun scripts/update-admin.mjs <email> <password> */
+/** Create or update admin credentials: bun scripts/update-admin.mjs <email> <password> */
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { randomBytes } from "crypto";
 import { readFileSync } from "fs";
 
 for (const line of readFileSync(".env", "utf8").split("\n")) {
@@ -22,16 +23,27 @@ if (password.length < 8) {
 }
 
 const db = new PrismaClient();
-const admin = await db.user.findFirst({ where: { role: "admin" } });
-if (!admin) {
-  console.error("no admin user found");
-  process.exit(1);
-}
-
 const passwordHash = await bcrypt.hash(password, 12);
-await db.user.update({
-  where: { id: admin.id },
-  data: { email, passwordHash, emailVerifiedAt: new Date() },
-});
-console.log(`admin updated: ${admin.email} -> ${email}`);
+const admin = await db.user.findFirst({ where: { role: "admin" } });
+
+if (admin) {
+  await db.user.update({
+    where: { id: admin.id },
+    data: { email: email.toLowerCase(), passwordHash, emailVerifiedAt: new Date() },
+  });
+  console.log(`admin updated: ${admin.email} -> ${email.toLowerCase()}`);
+} else {
+  // Fresh database — create the admin (mirrors the app's bootstrap claim).
+  await db.user.create({
+    data: {
+      name: "Store Admin",
+      email: email.toLowerCase(),
+      phone: `admin-${randomBytes(6).toString("hex")}`,
+      passwordHash,
+      role: "admin",
+      emailVerifiedAt: new Date(),
+    },
+  });
+  console.log(`admin created: ${email.toLowerCase()}`);
+}
 await db.$disconnect();
