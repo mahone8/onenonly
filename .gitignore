@@ -56,10 +56,14 @@ server.log
 # ── internal / runtime artifacts (never ship) ────────────────────────────────
 worklog.md
 image-data/
-upload/
+/upload/
 download/
 db/
 scripts/shot*
 scripts/contact_sheet.py
 scripts/products-backup.json
 agent-ctx/
+
+# runtime-uploaded product images (keep folder via .gitkeep)
+public/uploads/*
+!public/uploads/.gitkeep
