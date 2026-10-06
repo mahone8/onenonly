@@ -2,6 +2,7 @@ import { NextResponse, NextRequest } from "next/server";
 import { randomBytes } from "crypto";
 import { mkdir, writeFile } from "fs/promises";
 import path from "path";
+import { put } from "@vercel/blob";
 import { requireAdmin } from "@/lib/auth";
 
 /**
@@ -11,10 +12,15 @@ import { requireAdmin } from "@/lib/auth";
  * form appends every selected file under that name). Each file must be a
  * JPG / PNG / WEBP / AVIF / GIF image up to 5 MB; up to 8 files per request.
  *
- * Files are written to public/uploads/ with a random hex name (the original
- * filename is never trusted or preserved), so they are served statically at
- * /uploads/<name> — the same reference format the catalogue validators accept.
- * Returns { success: true, urls: ["/uploads/u-….jpg", …] }.
+ * Storage backend (chosen automatically):
+ *  - Vercel Blob when BLOB_READ_WRITE_TOKEN is present (production on
+ *    Vercel — serverless disks are ephemeral, so files must live in Blob).
+ *    Returns full https URLs served by Vercel's CDN.
+ *  - Local disk (public/uploads/) otherwise (local dev / single server),
+ *    returning /uploads/<name> references served statically.
+ *
+ * Original filenames are never trusted or preserved — every file gets a
+ * random hex name. Returns { success: true, urls: [...] }.
  */
 
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MB per image
@@ -27,6 +33,29 @@ const EXT_BY_TYPE: Record<string, string> = {
   "image/avif": ".avif",
   "image/gif": ".gif",
 };
+
+async function saveImage(
+  buf: Buffer,
+  name: string,
+  contentType: string
+): Promise<string> {
+  if (process.env.BLOB_READ_WRITE_TOKEN) {
+    // Vercel Blob — durable, CDN-backed (needs a Blob store connected to the
+    // Vercel project so the token env var is injected). The products/ prefix
+    // only organizes the blob store; disk mode stays flat in public/uploads.
+    const blob = await put(`products/${name}`, buf, {
+      access: "public",
+      contentType,
+    });
+    return blob.url;
+  }
+  // Local disk fallback — dev serves public/ directly; the standalone build
+  // copies public/ so single-server production uploads are served too.
+  const dir = path.join(process.cwd(), "public", "uploads");
+  await mkdir(dir, { recursive: true });
+  await writeFile(path.join(dir, name), buf);
+  return `/uploads/${name}`;
+}
 
 export async function POST(req: NextRequest) {
   const denied = await requireAdmin();
@@ -53,18 +82,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       { success: false, error: `Too many files at once (max ${MAX_FILES}).` },
       { status: 400 }
-    );
-  }
-
-  // public/uploads — created on demand; dev serves it directly, and the
-  // standalone build copies public/ so runtime uploads are served too.
-  const dir = path.join(process.cwd(), "public", "uploads");
-  try {
-    await mkdir(dir, { recursive: true });
-  } catch {
-    return NextResponse.json(
-      { success: false, error: "Storage folder is not writable." },
-      { status: 500 }
     );
   }
 
@@ -97,14 +114,19 @@ export async function POST(req: NextRequest) {
 
     const name = `u-${randomBytes(10).toString("hex")}${ext}`;
     try {
-      await writeFile(path.join(dir, name), buf);
-    } catch {
+      urls.push(await saveImage(buf, name, file.type));
+    } catch (err) {
+      console.error("POST /api/upload error:", err);
       return NextResponse.json(
-        { success: false, error: "Could not save the file. Try again." },
+        {
+          success: false,
+          error: process.env.BLOB_READ_WRITE_TOKEN
+            ? "Blob storage upload failed — check the Blob store connection in Vercel."
+            : "Could not save the file. Try again.",
+        },
         { status: 500 }
       );
     }
-    urls.push(`/uploads/${name}`);
   }
 
   return NextResponse.json({ success: true, urls });
