@@ -117,12 +117,19 @@ export async function POST(req: NextRequest) {
       urls.push(await saveImage(buf, name, file.type));
     } catch (err) {
       console.error("POST /api/upload error:", err);
+      const readonlyFs =
+        typeof err === "object" &&
+        err !== null &&
+        "code" in err &&
+        (err as { code?: string }).code === "EROFS";
       return NextResponse.json(
         {
           success: false,
-          error: process.env.BLOB_READ_WRITE_TOKEN
-            ? "Blob storage upload failed — check the Blob store connection in Vercel."
-            : "Could not save the file. Try again.",
+          error: readonlyFs
+            ? "Server storage is read-only (Vercel) — connect a Vercel Blob store in the Storage tab, then redeploy."
+            : process.env.BLOB_READ_WRITE_TOKEN
+              ? "Blob storage upload failed — check the Blob store connection in Vercel."
+              : "Could not save the file. Try again.",
         },
         { status: 500 }
       );
