@@ -39,10 +39,9 @@ async function saveImage(
   name: string,
   contentType: string
 ): Promise<string> {
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
-    // Vercel Blob — durable, CDN-backed (needs a Blob store connected to the
-    // Vercel project so the token env var is injected). The products/ prefix
-    // only organizes the blob store; disk mode stays flat in public/uploads.
+  // Vercel Blob supports both static token (BLOB_READ_WRITE_TOKEN) and OIDC
+  // (BLOB_STORE_ID + BLOB_WEBHOOK_PUBLIC_KEY). Auto-detects credential mode.
+  if (process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID) {
     const blob = await put(`products/${name}`, buf, {
       access: "public",
       contentType,
