@@ -43,6 +43,7 @@ async function saveImage(
   // (BLOB_STORE_ID + BLOB_WEBHOOK_PUBLIC_KEY). Auto-detects credential mode.
   if (process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID) {
     const blob = await put(`products/${name}`, buf, {
+      access: "private",
       contentType,
     });
     return blob.url;
