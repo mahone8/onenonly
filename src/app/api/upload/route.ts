@@ -14,7 +14,7 @@ import { requireAdmin } from "@/lib/auth";
  *
  * Storage backend (chosen automatically):
  *  - Vercel Blob when BLOB_READ_WRITE_TOKEN or BLOB_STORE_ID is present
- *    (OIDC) — Vercel injects either credential mode.
+ *    (OIDC or Token) — Vercel injects either credential mode.
  *    Returns full https URLs served by Vercel's CDN.
  *  - Local disk (public/uploads/) otherwise (local dev / single server),
  *    returning /uploads/<name> references served statically.
@@ -36,11 +36,12 @@ async function saveImage(
   name: string,
   contentType: string
 ): Promise<string> {
-  // OIDC first, fallback to token if provided, else disk
+  // OIDC first (BLOB_STORE_ID), then token (BLOB_READ_WRITE_TOKEN), else disk
   if (process.env.BLOB_STORE_ID) {
-    // OIDC credential mode — SDK auto-detects via store ID
+    // Use BLOB_STORE_ID directly - the SDK auto-detects credentials
+    // Try with explicit access mode detection
     const blob = await put(`products/${name}`, buf, {
-      access: "private",
+      access: process.env.BLOB_ACCESS_MODE || "private",
       contentType,
     });
     return blob.url;
@@ -122,8 +123,8 @@ export async function POST(req: NextRequest) {
     } catch (err) {
       console.error("POST /api/upload error:", err);
       const message =
-        process.env.BLOB_STORE_ID
-          ? "Blob upload failed — store ID present but SDK may need token. Check Vercel Blob connection."
+        process.env.BLOB_STORE_ID && !process.env.BLOB_READ_WRITE_TOKEN
+          ? "Blob upload failed — store ID present but token not injected. Create Vercel Blob store with Token credentials."
           : process.env.VERCEL
           ? "No image storage connected — create a Vercel Blob store (Storage tab) and redeploy, or paste an https:// image URL instead."
           : "Could not save the file. Try again.";
