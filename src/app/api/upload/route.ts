@@ -13,14 +13,11 @@ import { requireAdmin } from "@/lib/auth";
  * JPG / PNG / WEBP / AVIF / GIF image up to 5 MB; up to 8 files per request.
  *
  * Storage backend (chosen automatically):
- *  - Vercel Blob when BLOB_READ_WRITE_TOKEN is present (production on
- *    Vercel — serverless disks are ephemeral, so files must live in Blob).
+ *  - Vercel Blob when BLOB_READ_WRITE_TOKEN or BLOB_STORE_ID is present
+ *    (OIDC) — Vercel injects either credential mode.
  *    Returns full https URLs served by Vercel's CDN.
  *  - Local disk (public/uploads/) otherwise (local dev / single server),
  *    returning /uploads/<name> references served statically.
- *
- * Original filenames are never trusted or preserved — every file gets a
- * random hex name. Returns { success: true, urls: [...] }.
  */
 
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MB per image
@@ -39,9 +36,17 @@ async function saveImage(
   name: string,
   contentType: string
 ): Promise<string> {
-  // Vercel Blob supports both static token (BLOB_READ_WRITE_TOKEN) and OIDC
-  // (BLOB_STORE_ID + BLOB_WEBHOOK_PUBLIC_KEY). Auto-detects credential mode.
-  if (process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID) {
+  // OIDC first, fallback to token if provided, else disk
+  if (process.env.BLOB_STORE_ID) {
+    // OIDC credential mode — SDK auto-detects via store ID
+    const blob = await put(`products/${name}`, buf, {
+      access: "private",
+      contentType,
+    });
+    return blob.url;
+  }
+  if (process.env.BLOB_READ_WRITE_TOKEN) {
+    // Classic token mode
     const blob = await put(`products/${name}`, buf, {
       access: "private",
       contentType,
@@ -116,21 +121,16 @@ export async function POST(req: NextRequest) {
       urls.push(await saveImage(buf, name, file.type));
     } catch (err) {
       console.error("POST /api/upload error:", err);
-      const readonlyFs =
-        typeof err === "object" &&
-        err !== null &&
-        "code" in err &&
-        (err as { code?: string }).code === "EROFS";
+      const message =
+        process.env.BLOB_STORE_ID
+          ? "Blob upload failed — store ID present but SDK may need token. Check Vercel Blob connection."
+          : process.env.VERCEL
+          ? "No image storage connected — create a Vercel Blob store (Storage tab) and redeploy, or paste an https:// image URL instead."
+          : "Could not save the file. Try again.";
       return NextResponse.json(
         {
           success: false,
-          error: readonlyFs
-            ? "Server storage is read-only (Vercel) — connect a Vercel Blob store in the Storage tab, then redeploy."
-            : process.env.BLOB_READ_WRITE_TOKEN
-              ? "Blob storage upload failed — check the Blob store connection in Vercel."
-              : process.env.VERCEL
-                ? "No image storage connected — create a Vercel Blob store (Storage tab) and redeploy, or paste an https:// image URL instead."
-                : "Could not save the file. Try again.",
+          error: message,
         },
         { status: 500 }
       );
