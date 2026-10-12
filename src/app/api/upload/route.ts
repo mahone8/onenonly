@@ -38,18 +38,18 @@ async function saveImage(
 ): Promise<string> {
   // OIDC first (BLOB_STORE_ID), then token (BLOB_READ_WRITE_TOKEN), else disk
   if (process.env.BLOB_STORE_ID) {
-    // Use BLOB_STORE_ID directly - the SDK auto-detects credentials
-    // Try with explicit access mode detection
+    // onomedia store is public — product images must be readable by every
+    // storefront visitor, so plain (non-expiring) CDN URLs are what we want.
     const blob = await put(`products/${name}`, buf, {
-      access: process.env.BLOB_ACCESS_MODE || "private",
+      access: "public",
       contentType,
     });
     return blob.url;
   }
   if (process.env.BLOB_READ_WRITE_TOKEN) {
-    // Classic token mode
+    // Classic token mode — store is public, same reasoning as above.
     const blob = await put(`products/${name}`, buf, {
-      access: "private",
+      access: "public",
       contentType,
     });
     return blob.url;
